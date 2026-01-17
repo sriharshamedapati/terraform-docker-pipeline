@@ -1,0 +1,70 @@
+name: DataOps LocalStack Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_ENDPOINT_URL: http://localhost:4566
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+  AWS_DEFAULT_REGION: us-east-1
+  S3_BUCKET_NAME: ci-test-bucket
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+
+    services:
+      localstack:
+        image: localstack/localstack:latest
+        ports:
+          - 4566:4566
+        options: >-
+          --health-cmd="curl -f http://localhost:4566/_localstack/health"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Init
+        run: terraform -chdir=terraform init
+
+      - name: Terraform Validate
+        run: terraform -chdir=terraform validate
+
+      - name: Terraform Plan
+        run: terraform -chdir=terraform plan -var="bucket_name=${S3_BUCKET_NAME}"
+
+      - name: Terraform Apply
+        run: terraform -chdir=terraform apply -var="bucket_name=${S3_BUCKET_NAME}" -auto-approve
+
+      - name: Upload test CSV
+        run: |
+          echo "id,name" > test.csv
+          echo "1,Alice" >> test.csv
+          echo "2,Bob" >> test.csv
+          aws --endpoint-url=${AWS_ENDPOINT_URL} s3 cp test.csv s3://${S3_BUCKET_NAME}/raw/input.csv
+
+      - name: Build ETL Docker Image
+        run: docker build -t etl-app ./etl
+
+      - name: Run ETL Container
+        run: |
+          docker run --rm \
+            -e AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL} \
+            -e S3_BUCKET_NAME=${S3_BUCKET_NAME} \
+            -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
+            -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
+            etl-app
+
+      - name: Verify Output File
+        run: |
+          aws --endpoint-url=${AWS_ENDPOINT_URL} s3 ls s3://${S3_BUCKET_NAME}/processed/ | grep output.csv
