@@ -58,12 +58,14 @@ jobs:
 
       - name: Run ETL Container
         run: |
+          set -e
           docker run --rm \
-            -e AWS_ENDPOINT_URL=${AWS_ENDPOINT_URL} \
+            -e AWS_ENDPOINT_URL=http://localstack:4566 \
             -e S3_BUCKET_NAME=${S3_BUCKET_NAME} \
             -e AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \
             -e AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \
             etl-app
+
 
       - name: Verify Output File
         run: |
